@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keitaro Stream Manager | ETOLEGKO</title>
+  <!-- Tailwind CSS & Vue 3 via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    [v-cloak] { display: none; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+<div id="app" v-cloak class="max-w-7xl mx-auto px-4 py-8 space-y-8">
+
+  <!-- Header -->
+  <header class="flex justify-between items-center border-b border-slate-200 pb-5">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+        <i class="fa-solid fa-layer-group text-emerald-600"></i>
+        Keitaro Stream Manager
+      </h1>
+      <p class="text-sm text-slate-500 mt-1">Оркестратор кампаний, стейджинг потоков и балансировщик весов</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Keitaro API v1 Connected
+      </span>
+    </div>
+  </header>
+
+  <!-- Блок 1: Создаватор кампаний (Часть 1 ТЗ) -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+        <i class="fa-solid fa-plus-circle text-indigo-600"></i>
+        1. Создаватор кампаний
+      </h2>
+      <span class="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-md font-mono">2 потока: GEO->Google + Оффер</span>
+    </div>
+
+    <form @submit.prevent="createCampaign" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Название кампании</label>
+        <input 
+          v-model="newCamp.name" 
+          type="text" 
+          required 
+          placeholder="test_lapin_campaign1" 
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+        >
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Гео-код страны</label>
+        <input 
+          v-model="newCamp.geo" 
+          type="text" 
+          required 
+          maxlength="2"
+          placeholder="AU, MX, US..." 
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg uppercase focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+        >
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Целевой оффер</label>
+        <select 
+          v-model="newCamp.offer_id" 
+          required 
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+        >
+          <option :value="null" disabled>Выберите оффер...</option>
+          <option v-for="o in offersList" :key="o.id" :value="o.id">
+            #{{ o.id }} - {{ o.name.substring(0, 45) }}...
+          </option>
+        </select>
+      </div>
+
+      <div>
+        <button 
+          type="submit" 
+          :disabled="creatingCamp"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          <i v-if="creatingCamp" class="fa-solid fa-spinner fa-spin"></i>
+          <i v-else class="fa-solid fa-bolt"></i>
+          Создать в Keitaro
+        </button>
+      </div>
+    </form>
+  </section>
+
+
+  <!-- Блок 2: Редактор существующей кампании (Часть 2 ТЗ) -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-emerald-600"></i>
+          2. Редактор кампании и потоков
+        </h2>
+        <p class="text-xs text-slate-500">Управление офферами, авто-балансировка весов и Staging-черновик</p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Выбор кампании -->
+        <select 
+          v-model="selectedCampaignId" 
+          class="px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none min-w-[240px]"
+        >
+          <option :value="null">Выберите кампанию...</option>
+          <option v-for="c in campaignsList" :key="c.id" :value="c.id">
+            #{{ c.id }} - {{ c.name }}
+          </option>
+        </select>
+
+        <!-- Кнопка Fetch streams -->
+        <button 
+          @click="fetchStreams" 
+          :disabled="!selectedCampaignId || fetchingStreams"
+          class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg text-sm transition flex items-center gap-2 disabled:opacity-50"
+        >
+          <i :class="fetchingStreams ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-arrows-rotate'"></i>
+          Fetch streams
+        </button>
+      </div>
+    </div>
+
+    <!-- Загрузка / Пустое состояние -->
+    <div v-if="streams.length === 0" class="text-center py-12 text-slate-400">
+      <i class="fa-solid fa-folder-open text-4xl mb-3 text-slate-300"></i>
+      <p class="text-sm">Выберите кампанию и нажмите <b>«Fetch streams»</b> для загрузки потоков</p>
+    </div>
+
+    <!-- Список потоков -->
+    <div v-else class="space-y-6">
+      <div 
+        v-for="stream in streams" 
+        :key="stream.id" 
+        class="border rounded-xl transition duration-200 overflow-hidden"
+        :class="stream.is_dirty ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200 bg-white'"
+      >
+        <!-- Шапка потока -->
+        <div 
+          class="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b"
+          :class="stream.is_dirty ? 'bg-amber-100/60 border-amber-200' : 'bg-slate-50/80 border-slate-200'"
+        >
+          <div class="flex items-center gap-3">
+            <span 
+              class="w-3 h-3 rounded-full" 
+              :class="stream.is_dirty ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'"
+              :title="stream.is_dirty ? 'Неопубликованные изменения (Draft)' : 'Синхронизировано с Keitaro'"
+            ></span>
+            <div>
+              <h3 class="font-bold text-slate-900 text-sm flex items-center gap-2">
+                {{ stream.name }}
+                <span class="text-xs px-2 py-0.5 rounded font-normal" :class="stream.is_dirty ? 'bg-amber-200 text-amber-900 font-semibold' : 'bg-slate-200 text-slate-700'">
+                  {{ stream.is_dirty ? 'Unpublished (Draft)' : 'Synced with KT' }}
+                </span>
+              </h3>
+              <p class="text-xs text-slate-500">ID: {{ stream.id }} | Схема: {{ stream.schema }}</p>
+            </div>
+          </div>
+
+          <!-- Кнопки управления Staging: Push to KT & Cancel -->
+          <div class="flex items-center gap-2">
+            <button 
+              @click="pushToKt(stream.id)" 
+              :disabled="!stream.is_dirty || pushingStreamId === stream.id"
+              class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-1.5 px-3.5 rounded-lg transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+            >
+              <i v-if="pushingStreamId === stream.id" class="fa-solid fa-spinner fa-spin"></i>
+              <i v-else class="fa-solid fa-cloud-arrow-up"></i>
+              Push to KT
+            </button>
+
+            <button 
+              @click="cancelChanges(stream.id)" 
+              :disabled="!stream.is_dirty"
+              class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold py-1.5 px-3 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <i class="fa-solid fa-undo mr-1"></i>
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <!-- Тело потока: Поток без офферов (например, фильтр на Google) -->
+        <div v-if="stream.offers.length === 0" class="p-6 text-sm text-slate-500 italic bg-slate-50/40">
+          <i class="fa-solid fa-filter mr-1 text-slate-400"></i>
+          Фильтрующий поток (без офферов) — трафик перенаправляется по правилам схемы.
+        </div>
+
+        <!-- Тело потока: Офферы и пересчет весов -->
+        <div v-else class="p-6 space-y-4">
+          <!-- Форма добавления оффера в поток -->
+          <div class="flex flex-col sm:flex-row items-center gap-3 bg-white p-3 rounded-lg border border-slate-200">
+            <div class="w-full sm:w-80">
+              <select 
+                v-model="selectedAddOffer[stream.id]" 
+                class="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option :value="null" disabled>Выберите оффер для добавления...</option>
+                <option v-for="o in offersList" :key="o.id" :value="o">
+                  #{{ o.id }} - {{ o.name.substring(0, 40) }}...
+                </option>
+              </select>
+            </div>
+            <button 
+              @click="addOffer(stream.id)" 
+              :disabled="!selectedAddOffer[stream.id]"
+              class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium py-1.5 px-3.5 rounded-md transition flex items-center justify-center gap-1.5 disabled:opacity-40"
+            >
+              <i class="fa-solid fa-plus"></i>
+              Добавить оффер
+            </button>
+          </div>
+
+          <!-- Таблица офферов -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase bg-slate-100/70 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="py-2.5 px-4">Оффер</th>
+                  <th class="py-2.5 px-4 w-44">Вес (Распределение)</th>
+                  <th class="py-2.5 px-4 w-28 text-center">Pin (Фиксация)</th>
+                  <th class="py-2.5 px-4 w-36 text-right">Действие</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr 
+                  v-for="o in stream.offers" 
+                  :key="o.id" 
+                  class="transition duration-150"
+                  :class="o.status === 'removed' ? 'bg-slate-100/80 text-slate-400' : 'hover:bg-slate-50/60'"
+                >
+                  <!-- Имя / ID -->
+                  <td class="py-3 px-4">
+                    <div class="font-medium text-slate-900" :class="{ 'line-through text-slate-400': o.status === 'removed' }">
+                      #{{ o.offer_id }} - {{ o.offer_name }}
+                    </div>
+                    <span v-if="o.status === 'removed'" class="text-xs font-bold text-red-500 uppercase tracking-wider">
+                      [Архивирован / 0%]
+                    </span>
+                  </td>
+
+                  <!-- Вес в процентах -->
+                  <td class="py-3 px-4">
+                    <div class="flex items-center gap-2">
+                      <div class="w-24 bg-slate-200 rounded-full h-2 overflow-hidden">
+                        <div 
+                          class="h-full rounded-full transition-all duration-300" 
+                          :class="o.status === 'removed' ? 'bg-slate-300' : (o.is_pinned ? 'bg-indigo-600' : 'bg-emerald-500')"
+                          :style="{ width: o.share + '%' }"
+                        ></div>
+                      </div>
+                      <span class="text-xs font-bold font-mono" :class="o.status === 'removed' ? 'text-slate-400' : 'text-slate-700'">
+                        {{ o.share }}%
+                      </span>
+                    </div>
+                  </td>
+
+                  <!-- Пин / Фиксация веса -->
+                  <td class="py-3 px-4 text-center">
+                    <button 
+                      v-if="o.status !== 'removed'"
+                      @click="togglePin(stream.id, o.offer_id)" 
+                      class="text-xs px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1 mx-auto"
+                      :class="o.is_pinned ? 'bg-indigo-100 text-indigo-700 font-bold border border-indigo-200' : 'text-slate-400 hover:text-slate-600 border border-slate-200'"
+                      :title="o.is_pinned ? 'Вес зафиксирован' : 'Закрепить вес'"
+                    >
+                      <i class="fa-solid fa-thumbtack" :class="{ 'rotate-45': !o.is_pinned }"></i>
+                      <span>{{ o.is_pinned ? 'Pinned' : 'Pin' }}</span>
+                    </button>
+                    <span v-else class="text-xs text-slate-400">-</span>
+                  </td>
+
+                  <!-- Кнопки Remove / Bring back -->
+                  <td class="py-3 px-4 text-right">
+                    <button 
+                      v-if="o.status !== 'removed'"
+                      @click="removeOffer(stream.id, o.offer_id)" 
+                      class="text-xs text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 font-semibold px-3 py-1.5 rounded-md transition"
+                    >
+                      <i class="fa-solid fa-trash-can mr-1"></i>
+                      Remove
+                    </button>
+
+                    <button 
+                      v-else
+                      @click="bringBackOffer(stream.id, o.offer_id)" 
+                      class="text-xs text-emerald-700 hover:text-emerald-900 bg-emerald-100 hover:bg-emerald-200 font-bold px-3 py-1.5 rounded-md transition"
+                    >
+                      <i class="fa-solid fa-arrow-rotate-left mr-1"></i>
+                      Bring back
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const { createApp } = Vue;
+
+  createApp({
+    data() {
+      return {
+        campaignsList: [],
+        offersList: [],
+        selectedCampaignId: null,
+        streams: [],
+        newCamp: {
+          name: "test_lapin_campaign1",
+          geo: "AU",
+          offer_id: null
+        },
+        selectedAddOffer: {},
+        creatingCamp: false,
+        fetchingStreams: false,
+        pushingStreamId: null
+      };
+    },
+    mounted() {
+      this.loadCampaigns();
+      this.loadOffers();
+    },
+    methods: {
+      async loadCampaigns() {
+        try {
+          const res = await fetch('/api/campaigns/');
+          this.campaignsList = await res.json();
+          if (this.campaignsList.length > 0 && !this.selectedCampaignId) {
+            this.selectedCampaignId = this.campaignsList[0].id;
+          }
+        } catch (e) {
+          console.error("Ошибка загрузки кампаний:", e);
+        }
+      },
+      async loadOffers() {
+        try {
+          const res = await fetch('/api/campaigns/offers');
+          this.offersList = await res.json();
+          if (this.offersList.length > 0) {
+            this.newCamp.offer_id = this.offersList[0].id;
+          }
+        } catch (e) {
+          console.error("Ошибка загрузки офферов:", e);
+        }
+      },
+      async createCampaign() {
+        this.creatingCamp = true;
+        try {
+          const res = await fetch('/api/campaigns/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.newCamp)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Ошибка создания');
+          alert(`Кампания #${data.campaign.id} успешно создана в Keitaro с 2 потоками!`);
+          await this.loadCampaigns();
+          this.selectedCampaignId = data.campaign.id;
+          await this.fetchStreams();
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          this.creatingCamp = false;
+        }
+      },
+      async fetchStreams() {
+        if (!this.selectedCampaignId) return;
+        this.fetchingStreams = true;
+        try {
+          const res = await fetch(`/api/streams/campaign/${this.selectedCampaignId}/fetch`, { method: 'POST' });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Ошибка получения потоков');
+          this.streams = data.streams;
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          this.fetchingStreams = false;
+        }
+      },
+      async addOffer(streamId) {
+        const offer = this.selectedAddOffer[streamId];
+        if (!offer) return;
+        try {
+          const res = await fetch(`/api/streams/${streamId}/add_offer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offer_id: offer.id, offer_name: offer.name })
+          });
+          const updatedStream = await res.json();
+          this.updateStreamInState(updatedStream);
+          this.selectedAddOffer[streamId] = null;
+        } catch (e) {
+          alert(e.message);
+        }
+      },
+      async removeOffer(streamId, offerId) {
+        try {
+          const res = await fetch(`/api/streams/${streamId}/remove_offer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offer_id: offerId })
+          });
+          const updatedStream = await res.json();
+          this.updateStreamInState(updatedStream);
+        } catch (e) {
+          alert(e.message);
+        }
+      },
+      async bringBackOffer(streamId, offerId) {
+        try {
+          const res = await fetch(`/api/streams/${streamId}/bring_back_offer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offer_id: offerId })
+          });
+          const updatedStream = await res.json();
+          this.updateStreamInState(updatedStream);
+        } catch (e) {
+          alert(e.message);
+        }
+      },
+      async togglePin(streamId, offerId) {
+        try {
+          const res = await fetch(`/api/streams/${streamId}/toggle_pin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offer_id: offerId })
+          });
+          const updatedStream = await res.json();
+          this.updateStreamInState(updatedStream);
+        } catch (e) {
+          alert(e.message);
+        }
+      },
+      async cancelChanges(streamId) {
+        try {
+          const res = await fetch(`/api/streams/${streamId}/cancel`, { method: 'POST' });
+          const data = await res.json();
+          this.streams = data.streams;
+        } catch (e) {
+          alert(e.message);
+        }
+      },
+      async pushToKt(streamId) {
+        this.pushingStreamId = streamId;
+        try {
+          const res = await fetch(`/api/streams/${streamId}/push_to_kt`, { method: 'POST' });
+          const updatedStream = await res.json();
+          this.updateStreamInState(updatedStream);
+          alert('Изменения успешно отправлены в Keitaro (Push to KT)!');
+        } catch (e) {
+          alert(e.message);
+        } finally {
+          this.pushingStreamId = null;
+        }
+      },
+      updateStreamInState(updatedStream) {
+        const idx = this.streams.findIndex(s => s.id === updatedStream.id);
+        if (idx !== -1) {
+          this.streams[idx] = updatedStream;
+        }
+      }
+    }
+  }).mount('#app');
+</script>
+
+</body>
+</html>
